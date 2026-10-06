@@ -1,18 +1,35 @@
-# QueryMind AI — Natural Language Database Analytics & BI Dashboard
+# 🧠 QueryMind AI — Local Text-to-SQL Assistant
 
-QueryMind AI is a self-service Business Intelligence (BI) tool built with Streamlit, Python, SQLite, and Google Gemini API. It allows users to ask plain-English questions about database metrics, translates them into executable SQL queries, runs the analysis, and renders interactive charts.
+QueryMind AI is a Streamlit-based dashboard that transforms natural language questions into executable SQLite queries, fetches data, and automatically generates interactive Plotly visualizations—powered **100% locally** using Ollama.
 
-## Features
-- **Natural Language to SQL:** Translates free-text prompts into precise SQLite queries using `gemini-2.5-flash`.
-- **Zero Database Setup:** Uses an in-memory SQLite database populated with business metrics.
-- **Dynamic Data Visualization:** Automatically generates Plotly charts based on returning DataFrame structures.
-- **Schema Awareness:** Automatically extracts and feeds active table schemas into the model prompt context.
+---
 
-## Local Setup
-1. Clone repository & set up environment:
-   ```bash
-   git clone <your-repo-url>
-   cd querymind-ai
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
+## ✨ Features
+
+- **🔒 100% Offline & Private:** Powered locally by Ollama. No external API keys or cloud dependencies.
+- **💬 Natural Language to SQL:** Translates plain English prompts directly into valid SQLite queries.
+- **📊 Instant Data Visualizations:** Automatically generates interactive Plotly charts for numeric data results.
+- **🗄️ Built-in Database Schema Viewer:** Inspect table structures and view raw database records directly in the sidebar.
+- **🛡️ Clean Query Guardrails:** Enforces clean SQL execution by filtering internal SQLite metadata (`sqlite_sequence`) out of model prompts.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Frontend / UI:** Streamlit
+- **LLM Engine:** Ollama (`qwen2.5-coder`, `llama3.2`, etc.)
+- **Database:** SQLite
+- **Data Analysis & Visualization:** Pandas, Plotly Express
+
+---
+
+## 🚀 Getting Started
+
+### 1. Prerequisites
+
+Make sure you have [Ollama](https://ollama.com) installed and running on your machine.
+
+Pull your preferred model for SQL generation (we recommend `qwen2.5-coder:7b` or `llama3.2`):
+
+```bash
+ollama pull qwen2.5-coder:7b
