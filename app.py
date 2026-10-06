@@ -1,35 +1,31 @@
-import os
 import sqlite3
 import pandas as pd
 import streamlit as st
 import plotly.express as px
-from google import genai
-from google.genai import types
+import ollama
 
 # ------------------------------------------------------------------------------
 # 1. Streamlit Page Config & Title
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="QueryMind AI - Text-to-SQL",
-    page_icon="🔍",
+    page_title="QueryMind AI - Local Text-to-SQL",
+    page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.title("🔍 QueryMind AI — Text-to-SQL Assistant")
-st.caption("Ask questions in plain English, get executed SQL queries, data tables, and instant charts.")
+st.title("🧠 QueryMind AI — Local Text-to-SQL Assistant")
+st.caption("Powered 100% locally with Ollama. Zero API keys, completely private.")
 
 # ------------------------------------------------------------------------------
-# 2. Database Setup (Sample SQLite DB Creation)
+# 2. Database Setup (Sample SQLite DB)
 # ------------------------------------------------------------------------------
 DB_FILE = "student_data.db"
 
 def init_sample_database():
-    """Initializes a sample SQLite database for demonstration."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
-    # Create Table 1: STUDENTS
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS STUDENTS (
             ID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +37,6 @@ def init_sample_database():
         )
     """)
     
-    # Insert mock records if empty
     cursor.execute("SELECT COUNT(*) FROM STUDENTS")
     if cursor.fetchone()[0] == 0:
         sample_data = [
@@ -65,11 +60,11 @@ def init_sample_database():
 
 init_sample_database()
 
-# Function to get Database Schema info for Gemini
 def get_db_schema():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    # Filter out internal SQLite tables from schema string sent to LLM
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
     tables = cursor.fetchall()
     
     schema_info = ""
@@ -82,7 +77,6 @@ def get_db_schema():
     conn.close()
     return schema_info
 
-# Function to execute raw SQL and return a Pandas DataFrame
 def execute_sql_query(sql_query):
     conn = sqlite3.connect(DB_FILE)
     try:
@@ -93,33 +87,36 @@ def execute_sql_query(sql_query):
         conn.close()
         return None, str(e)
 
-# ------------------------------------------------------------------------------
-# 3. Gemini API Client Setup
-# ------------------------------------------------------------------------------
-@st.cache_resource
-def get_client():
-    return genai.Client()
+# Fetch available Ollama models dynamically
+def get_installed_ollama_models():
+    try:
+        models_response = ollama.list()
+        return [m.model for m in models_response.models]
+    except Exception:
+        return []
 
-try:
-    client = get_client()
-except Exception as e:
-    st.error(f"Failed to connect to Gemini API: {e}")
-    st.info("Make sure `GEMINI_API_KEY` is set in your environment variables.")
-    st.stop()
+installed_models = get_installed_ollama_models()
 
 # ------------------------------------------------------------------------------
-# 4. Sidebar Controls & Schema Explorer
+# 3. Sidebar Configuration
 # ------------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("## 🧠 Engine Settings")
-    selected_model = st.selectbox(
-        "Gemini Model",
-        ["gemini-3.8-flash", "gemini-2.5-pro", "gemini-1.5-flash"],
-        index=0
-    )
+    st.markdown("## 🦙 Ollama Local Engine")
     
+    if installed_models:
+        selected_model = st.selectbox(
+            "Select Local Model",
+            installed_models,
+            index=0
+        )
+        st.success("🟢 Ollama Connected")
+    else:
+        st.error("🔴 Ollama connection failed or no models pulled.")
+        st.info("Make sure Ollama app is running and execute `ollama pull qwen2.5-coder:7b` in terminal.")
+        selected_model = None
+
     st.markdown("---")
-    st.markdown("## 🗄️ Database Schema")
+    st.markdown("## 🗄️️ Database Schema")
     schema_text = get_db_schema()
     st.code(schema_text, language="sql")
     
@@ -128,15 +125,14 @@ with st.sidebar:
         st.dataframe(df_all, use_container_width=True)
 
 # ------------------------------------------------------------------------------
-# 5. Main Text-to-SQL Query Interface
+# 4. Main QueryMind Interface
 # ------------------------------------------------------------------------------
 st.markdown("### 💬 Ask QueryMind AI to Query Your Database")
 
-# Example Prompt Chips
 st.markdown("**Try asking:**")
 col1, col2, col3 = st.columns(3)
 with col1:
-    if st.button("📊 Show top 5 students in Data Science"):
+    if st.button("📊 Top 5 students in Data Science"):
         st.session_state["user_query"] = "Show the top 5 students in Data Science ordered by marks"
 with col2:
     if st.button("📈 Average marks by Class"):
@@ -145,7 +141,6 @@ with col3:
     if st.button("🏆 List students with A+ Grade"):
         st.session_state["user_query"] = "List all students who scored an A+ grade"
 
-# Input Box
 default_prompt = st.session_state.get("user_query", "")
 user_prompt = st.text_input(
     "Enter your natural language prompt:",
@@ -154,43 +149,44 @@ user_prompt = st.text_input(
 )
 
 if st.button("🚀 Generate & Execute SQL", type="primary", use_container_width=True):
-    if not user_prompt.strip():
-        st.warning("Please enter a question or select an example prompt.")
+    if not selected_model:
+        st.error("Please start Ollama service and select a model in the sidebar.")
+    elif not user_prompt.strip():
+        st.warning("Please enter a prompt.")
     else:
-        with st.spinner("Analyzing database schema and generating SQL..."):
-            # System instruction instructing Gemini to act strictly as a Text-to-SQL agent
-            system_instruction = f"""
-            You are QueryMind AI, an expert SQL generator.
-            Your job is to convert natural language questions into valid, executable SQLite queries based ONLY on the provided schema.
-            
+        with st.spinner(f"Generating SQL locally using `{selected_model}`..."):
+            prompt_content = f"""
+            You are an expert SQL generator for SQLite.
+            Convert the following question into a valid, executable SQLite query based ONLY on the provided schema.
+
             DATABASE SCHEMA:
             {schema_text}
-            
-            RULES:
-            1. Output ONLY the raw SQL query. Do not wrap in markdown code fences (no ```sql or ```).
-            2. Do not include any introductory or concluding text in your main output.
-            3. Ensure table and column names match the schema exactly.
+
+            QUESTION: {user_prompt}
+
+            STRICT RULES:
+            1. Output ONLY the raw SQL query.
+            2. Do NOT wrap in markdown fences (no ```sql or ```) or include extra commentary text.
+            3. Query ONLY the user tables provided in the schema (e.g., STUDENTS).
+            4. NEVER join or reference internal SQLite tables like sqlite_sequence, sqlite_master, etc.
+            5. Ensure column and table names match the schema exactly.
             """
 
             try:
-                # Call Gemini API
-                response = client.models.generate_content(
+                # Call local Ollama model
+                response = ollama.generate(
                     model=selected_model,
-                    contents=user_prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        temperature=0.1,  # Low temperature for precise SQL generation
-                    )
+                    prompt=prompt_content,
+                    options={"temperature": 0.1}
                 )
 
-                # Clean generated SQL query
-                generated_sql = response.text.strip().replace("```sql", "").replace("```", "").strip()
+                raw_sql = response["response"].strip()
+                generated_sql = raw_sql.replace("```sql", "").replace("```", "").strip()
 
-                # Display Generated SQL
                 st.markdown("#### 📝 Generated SQL Query")
                 st.code(generated_sql, language="sql")
 
-                # Execute SQL query against SQLite database
+                # Execute SQL
                 df_result, error = execute_sql_query(generated_sql)
 
                 if error:
@@ -202,7 +198,7 @@ if st.button("🚀 Generate & Execute SQL", type="primary", use_container_width=
                     else:
                         st.dataframe(df_result, use_container_width=True)
 
-                        # Automatic Visualization for numerical data
+                        # Automatic Plotly Chart
                         numeric_cols = df_result.select_dtypes(include=["number"]).columns.tolist()
                         categorical_cols = df_result.select_dtypes(include=["object"]).columns.tolist()
 
@@ -218,4 +214,4 @@ if st.button("🚀 Generate & Execute SQL", type="primary", use_container_width=
                             st.plotly_chart(fig, use_container_width=True)
 
             except Exception as e:
-                st.error(f"An error occurred while connecting to Gemini: {e}")
+                st.error(f"Error communicating with local Ollama service: {e}")
